@@ -110,7 +110,7 @@ apiHostIP = "127.0.0.1"
 apiHostPost = 5000
 
 
-httpRestIntegrationConfig = {
+automaticImportRestHttp = {
     'enabled': False,
     'baseURL': 'https://domain',
     'networkURI': '/some/path',

@@ -2,11 +2,14 @@ import time
 import datetime
 from LibreQoS import refreshShapers, refreshShapersUpdateOnly
 from graphInfluxDB import refreshBandwidthGraphs, refreshLatencyGraphs
-from ispConfig import influxDBEnabled, automaticImportUISP, automaticImportSplynx
+from ispConfig import influxDBEnabled, automaticImportUISP, automaticImportSplynx, automaticImportRestHttp
 if automaticImportUISP:
 	from integrationUISP import importFromUISP
 if automaticImportSplynx:
 	from integrationSplynx import importFromSplynx
+if automaticImportRestHttp['enabled']:
+	from integrationRestHttp import importFromRestHttp
+
 from apscheduler.schedulers.background import BlockingScheduler
 
 ads = BlockingScheduler()
@@ -22,6 +25,11 @@ def importFromCRM():
 			importFromSplynx()
 		except:
 			print("Failed to import from Splynx")
+	elif automaticImportRestHttp['enabled']:
+		try:
+			importFromRestHttp()
+		except:
+			print("Failed to import from RestHttp")
 
 def graphHandler():
 	try:
