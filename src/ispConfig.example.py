@@ -23,6 +23,9 @@ interfaceA = 'eth1'
 # Interface connected to edge router
 interfaceB = 'eth2'
 
+# Queue refresh scheduler (lqos_scheduler). Minutes between reloads.
+queueRefreshIntervalMins = 30
+
 # WORK IN PROGRESS. Note that interfaceA determines the "stick" interface
 # I could only get scanning to work if I issued ethtool -K enp1s0f1 rxvlan off
 OnAStick = False
@@ -62,6 +65,9 @@ influxDBtoken = ""
 
 # Use Customer Name or Address as Circuit Name
 circuitNameUseAddress = True
+
+# Should integrationUISP overwrite network.json on each run?
+overwriteNetworkJSONalways = False
 
 # If a device shows a WAN IP within these subnets, assume they are behind NAT / un-shapable, and ignore them
 ignoreSubnets = ['192.168.0.0/16']
