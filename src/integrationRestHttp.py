@@ -16,7 +16,7 @@ requestsBaseConfig = {
 }
 
 
-def createShaper():
+def create_shaper():
 
     # shutil.copy('Shaper.csv', 'Shaper.csv.bak')
     ts = datetime.now().strftime('%Y-%m-%d.%H-%M-%S')
@@ -41,7 +41,7 @@ def createShaper():
         for row in raw.json():
             wr.writerow(row.values())
 
-    if restconf['logChanges']:
+    if 'logChanges' in restconf:
         devicesBakFilePath = restconf['logChanges'].rstrip('/') + '/ShapedDevices.' + ts + '.csv'
         try:
             shutil.copy(devicesCsvFP, devicesBakFilePath)
@@ -62,7 +62,7 @@ def createShaper():
     with open(networkJsonFP, 'w') as handler:
         handler.write(raw.text)
 
-    if restconf['logChanges']:
+    if 'logChanges' in restconf:
         networkBakFilePath = restconf['logChanges'].rstrip('/') + '/network.' + ts + '.json'
         try:
             shutil.copy(networkJsonFP, networkBakFilePath)
@@ -72,7 +72,7 @@ def createShaper():
 
 
 def importFromRestHttp():
-    createShaper()
+    create_shaper()
 
 
 if __name__ == '__main__':
