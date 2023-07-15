@@ -7,13 +7,17 @@ sqm = 'cake diffserv4'
 # ensure actual shaping. After changing this value, run "sudo systemctl restart LibreQoS.service"
 monitorOnlyMode = False
 
-# How many Mbps are available to the edge of this network
+# How many Mbps are available to the edge of this network.
+# Any circuits, generated nodes, or network.json nodes, will all be capped at no more than this amount.
 upstreamBandwidthCapacityDownloadMbps = 1000
 upstreamBandwidthCapacityUploadMbps = 1000
 
-# Devices in ShapedDevices.csv without a defined ParentNode will be placed under a generated
-# parent node, evenly spread out across CPU cores. Here, define the bandwidth limit for each
-# of those generated parent nodes.
+# Consider these values your bandwidth bottleneck per-CPU-core.
+# This will depend on your CPU's single-thread passmark score.
+# Devices in ShapedDevices.csv without a defined ParentNode (such as if you have a flat {} network)
+# will be placed under one of these generated parent node, evenly spread out across CPU cores.
+# This defines the bandwidth limit for each of those generated parent nodes.
+# If you are not sure what values to use, simply use the same values as upstreamBandwidthCapacityDownloadMbps and upstreamBandwidthCapacityUploadMbps
 generatedPNDownloadMbps = 1000
 generatedPNUploadMbps = 1000
 
@@ -94,6 +98,15 @@ uispSite = ''
 #   or site options.
 # * "full" - build a complete network map
 uispStrategy = "full"
+# Handling of UISP suspensions:
+# * "none" - do not handle suspensions
+# * "ignore" - do not add suspended customers to the network map
+# * "slow" - limit suspended customers to 1mbps
+uispSuspendedStrategy = "none"
+# Assumed capacity of AirMax and LTU radios vs reported capacity by UISP. For example, 65% would be 0.65.
+# For AirMax, this applies to flexible frame only. AirMax fixed frame will have capacity based on ratio.
+airMax_capacity = 0.65
+ltu_capacity = 0.90
 # List any sites that should not be included, with each site name surrounded by '' and separated by commas
 excludeSites = []
 # If you use IPv6, this can be used to find associated IPv6 prefixes for your clients' IPv4 addresses, and match them

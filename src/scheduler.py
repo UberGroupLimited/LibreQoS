@@ -15,8 +15,9 @@ if automaticImportRestHttp['enabled']:
 	from integrationRestHttp import importFromRestHttp
 
 from apscheduler.schedulers.background import BlockingScheduler
+from apscheduler.executors.pool import ThreadPoolExecutor
 
-ads = BlockingScheduler()
+ads = BlockingScheduler(executors={'default': ThreadPoolExecutor(1)})
 
 def importFromCRM():
 	if automaticImportUISP:
@@ -56,9 +57,9 @@ def importAndShapePartialReload():
 if __name__ == '__main__':
 	importAndShapeFullReload()
 
-	ads.add_job(importAndShapePartialReload, 'interval', minutes=queueRefreshIntervalMins)
+	ads.add_job(importAndShapePartialReload, 'interval', minutes=queueRefreshIntervalMins, max_instances=1)
 
 	if influxDBEnabled:
-		ads.add_job(graphHandler, 'interval', seconds=10)
+		ads.add_job(graphHandler, 'interval', seconds=10, max_instances=1)
 
 	ads.start()

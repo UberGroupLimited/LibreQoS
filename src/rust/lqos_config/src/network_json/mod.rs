@@ -32,6 +32,9 @@ pub struct NetworkJsonNode {
 
   /// The immediate parent node
   pub immediate_parent: Option<usize>,
+
+  /// The node type
+  pub node_type: Option<String>,
 }
 
 impl NetworkJsonNode {
@@ -48,6 +51,7 @@ impl NetworkJsonNode {
       rtts: self.rtts.iter().map(|n| *n as f32 / 100.0).collect(),
       parents: self.parents.clone(),
       immediate_parent: self.immediate_parent,
+      node_type: self.node_type.clone(),
     }
   }
 }
@@ -69,6 +73,9 @@ pub struct NetworkJsonTransport {
   pub parents: Vec<usize>,
   /// The immediate parent node in the tree
   pub immediate_parent: Option<usize>,
+  /// The type of node (site, ap, etc.)
+  #[serde(rename = "type")]
+  pub node_type: Option<String>,
 }
 
 /// Holder for the network.json representation.
@@ -121,6 +128,7 @@ impl NetworkJson {
       parents: Vec::new(),
       immediate_parent: None,
       rtts: DashSet::new(),
+      node_type: None,
     }];
     if !Self::exists() {
       return Err(NetworkJsonError::FileNotFound);
@@ -268,6 +276,7 @@ fn recurse_node(
     name: name.to_string(),
     immediate_parent: Some(immediate_parent),
     rtts: DashSet::new(),
+    node_type: json.get("type").map(|v| v.as_str().unwrap().to_string()),
   };
 
   if node.name != "children" {
