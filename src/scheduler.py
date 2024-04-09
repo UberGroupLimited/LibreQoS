@@ -11,6 +11,19 @@ if automaticImportUISP:
 	from integrationUISP import importFromUISP
 if automaticImportSplynx:
 	from integrationSplynx import importFromSplynx
+try:
+	from ispConfig import automaticImportPowercode
+except:
+	automaticImportPowercode = False
+if automaticImportPowercode:
+	from integrationPowercode import importFromPowercode
+try:
+	from ispConfig import automaticImportSonar
+except:
+	automaticImportSonar = False
+if automaticImportSonar:
+	from integrationSonar import importFromSonar
+
 if automaticImportRestHttp['enabled']:
 	from integrationRestHttp import importFromRestHttp
 
@@ -30,6 +43,16 @@ def importFromCRM():
 			importFromSplynx()
 		except:
 			print("Failed to import from Splynx")
+	elif automaticImportPowercode:
+		try:
+			importFromPowercode()
+		except:
+			print("Failed to import from Powercode")
+	elif automaticImportSonar:
+		try:
+			importFromSonar()
+		except:
+			print("Failed to import from Sonar")
 	elif automaticImportRestHttp['enabled']:
 		try:
 			importFromRestHttp()
