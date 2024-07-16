@@ -22,6 +22,7 @@ pub struct IpStatsWithPlan {
   pub tc_handle: TcHandle,
   pub circuit_id: String,
   pub plan: (u32, u32),
+  pub tcp_retransmits: (u64, u64),
 }
 
 impl From<&IpStats> for IpStatsWithPlan {
@@ -34,6 +35,7 @@ impl From<&IpStats> for IpStatsWithPlan {
       tc_handle: i.tc_handle,
       circuit_id: i.circuit_id.clone(),
       plan: (0, 0),
+      tcp_retransmits: i.tcp_retransmits,
     };
 
     if !result.circuit_id.is_empty() {
@@ -71,7 +73,7 @@ pub struct ThroughputPerSecond {
 pub async fn current_throughput(
   _auth: AuthGuard,
 ) -> NoCache<MsgPack<ThroughputPerSecond>> {
-  let result = THROUGHPUT_BUFFER.read().await.current();
+  let result = THROUGHPUT_BUFFER.current();
   NoCache::new(MsgPack(result))
 }
 
@@ -79,7 +81,7 @@ pub async fn current_throughput(
 pub async fn throughput_ring_buffer(
   _auth: AuthGuard,
 ) -> NoCache<MsgPack<(usize, Vec<ThroughputPerSecond>)>> {
-  let result = THROUGHPUT_BUFFER.read().await.copy();
+  let result = THROUGHPUT_BUFFER.copy();
   NoCache::new(MsgPack(result))
 }
 
@@ -122,6 +124,21 @@ pub async fn worst_10_rtt(_auth: AuthGuard) -> NoCache<MsgPack<Vec<IpStatsWithPl
   {
     for msg in messages {
       if let BusResponse::WorstRtt(stats) = msg {
+        let result = stats.iter().map(|tt| tt.into()).collect();
+        return NoCache::new(MsgPack(result));
+      }
+    }
+  }
+
+  NoCache::new(MsgPack(Vec::new()))
+}
+
+#[get("/api/worst_10_tcp")]
+pub async fn worst_10_tcp(_auth: AuthGuard) -> NoCache<MsgPack<Vec<IpStatsWithPlan>>> {
+  if let Ok(messages) = bus_request(vec![BusRequest::GetWorstRetransmits { start: 0, end: 10 }]).await
+  {
+    for msg in messages {
+      if let BusResponse::WorstRetransmits(stats) = msg {
         let result = stats.iter().map(|tt| tt.into()).collect();
         return NoCache::new(MsgPack(result));
       }

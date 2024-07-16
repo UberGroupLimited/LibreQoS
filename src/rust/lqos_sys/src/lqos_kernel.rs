@@ -37,6 +37,13 @@ pub fn check_root() -> Result<()> {
   }
 }
 
+/// Converts an interface name to an interface index.
+/// This is a wrapper around the `if_nametoindex` function.
+/// Returns an error if the interface does not exist.
+/// # Arguments
+/// * `interface_name` - The name of the interface to convert
+/// # Returns
+/// * The index of the interface
 pub fn interface_name_to_index(interface_name: &str) -> Result<u32> {
   let if_name = CString::new(interface_name)?;
   let index = unsafe { if_nametoindex(if_name.as_ptr()) };
@@ -99,7 +106,8 @@ unsafe fn open_kernel() -> Result<*mut bpf::lqos_kern> {
 unsafe fn load_kernel(skeleton: *mut bpf::lqos_kern) -> Result<()> {
   let error = bpf::lqos_kern_load(skeleton);
   if error != 0 {
-    Err(Error::msg("Unable to load the XDP/TC kernel"))
+    let error = format!("Unable to load the XDP/TC kernel ({error})");
+    Err(Error::msg(error))
   } else {
     Ok(())
   }
@@ -116,6 +124,7 @@ pub fn attach_xdp_and_tc_to_interface(
   interface_name: &str,
   direction: InterfaceDirection,
   heimdall_event_handler: bpf::ring_buffer_sample_fn,
+  flowbee_event_handler: bpf::ring_buffer_sample_fn,
 ) -> Result<*mut lqos_kern> {
   check_root()?;
   // Check the interface is valid
@@ -183,6 +192,28 @@ pub fn attach_xdp_and_tc_to_interface(
   let handle = PerfBufferHandle(heimdall_perf_buffer);
   std::thread::spawn(|| poll_perf_events(handle));
 
+  // Find and attach the Flowbee handler
+  let flowbee_events_name = CString::new("flowbee_events").unwrap();
+  let flowbee_events_map = unsafe { bpf::bpf_object__find_map_by_name((*skeleton).obj, flowbee_events_name.as_ptr()) };
+  let flowbee_events_fd = unsafe { bpf::bpf_map__fd(flowbee_events_map) };
+  if flowbee_events_fd < 0 {
+    log::error!("Unable to load Flowbee Events FD");
+    return Err(anyhow::Error::msg("Unable to load Flowbee Events FD"));
+  }
+  let opts: *const bpf::ring_buffer_opts = std::ptr::null();
+  let flowbee_perf_buffer = unsafe {
+    bpf::ring_buffer__new(
+      flowbee_events_fd, 
+      flowbee_event_handler, 
+      opts as *mut c_void, opts)
+  };
+  if unsafe { bpf::libbpf_get_error(flowbee_perf_buffer as *mut c_void) != 0 } {
+    log::error!("Failed to create Flowbee event buffer");
+    return Err(anyhow::Error::msg("Failed to create Flowbee event buffer"));
+  }
+  let handle = PerfBufferHandle(flowbee_perf_buffer);
+  std::thread::spawn(|| poll_perf_events(handle));
+
   // Remove any previous entry
   let _r = Command::new("tc")
     .args(["qdisc", "del", "dev", interface_name, "clsact"])
@@ -205,21 +236,22 @@ pub fn attach_xdp_and_tc_to_interface(
   }
 
   // Attach to the ingress IF it is configured
-  if let Ok(etc) = lqos_config::EtcLqos::load() {
+  if let Ok(etc) = lqos_config::load_config() {
     if let Some(bridge) = &etc.bridge {
       if bridge.use_xdp_bridge {
         // Enable "promiscuous" mode on interfaces
-        for mapping in bridge.interface_mapping.iter() {
-          info!("Enabling promiscuous mode on {}", &mapping.name);
-          std::process::Command::new("/bin/ip")
-            .args(["link", "set", &mapping.name, "promisc", "on"])
-            .output()?;
-        }
+        info!("Enabling promiscuous mode on {}", &bridge.to_internet);
+        std::process::Command::new("/bin/ip")
+              .args(["link", "set", &bridge.to_internet, "promisc", "on"])
+              .output()?;
+        info!("Enabling promiscuous mode on {}", &bridge.to_network);
+        std::process::Command::new("/bin/ip")
+          .args(["link", "set", &bridge.to_network, "promisc", "on"])
+          .output()?;
 
         // Build the interface and vlan map entries
         crate::bifrost_maps::clear_bifrost()?;
-        crate::bifrost_maps::map_interfaces(&bridge.interface_mapping)?;
-        crate::bifrost_maps::map_vlans(&bridge.vlan_mapping)?;
+        crate::bifrost_maps::map_multi_interface_mode(&bridge.to_internet, &bridge.to_network)?;
 
         // Actually attach the TC ingress program
         let error = unsafe {
@@ -228,6 +260,26 @@ pub fn attach_xdp_and_tc_to_interface(
         if error != 0 {
           return Err(Error::msg("Unable to attach TC Ingress to interface"));
         }
+      }
+    }
+
+    if let Some(stick) = &etc.single_interface {
+      // Enable "promiscuous" mode on interface
+      info!("Enabling promiscuous mode on {}", &stick.interface);
+      std::process::Command::new("/bin/ip")
+        .args(["link", "set", &stick.interface, "promisc", "on"])
+        .output()?;
+
+      // Build the interface and vlan map entries
+      crate::bifrost_maps::clear_bifrost()?;
+      crate::bifrost_maps::map_single_interface_mode(&stick.interface, stick.internet_vlan as u32, stick.network_vlan as u32)?;
+
+      // Actually attach the TC ingress program
+      let error = unsafe {
+        bpf::tc_attach_ingress(interface_index as i32, false, skeleton)
+      };
+      if error != 0 {
+        return Err(Error::msg("Unable to attach TC Ingress to interface"));
       }
     }
   }

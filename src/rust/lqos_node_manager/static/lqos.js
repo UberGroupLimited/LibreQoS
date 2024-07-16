@@ -34,6 +34,7 @@ const IpStats = {
     "tc_handle": 4,
     "circuit_id": 5,
     "plan": 6,
+    "tcp_retransmits": 7,
 }
 
 const FlowTrans = {
@@ -165,7 +166,7 @@ function updateHostCounts() {
     });*/
     // LTS Check
     $.get("/api/stats_check", (data) => {
-        console.log(data);
+        //console.log(data);
         let template = "<a class='nav-link' href='$URL$'><i class='fa fa-dashboard'></i> $TEXT$</a>";
         switch (data.action) {
             case "Disabled": {
@@ -272,6 +273,18 @@ function scaleNumber(n) {
     return n;
 }
 
+function scaleNanos(n) {
+    if (n == 0) return "";
+    if (n > 1000000000) {
+        return (n / 1000000000).toFixed(2) + "s";
+    } else if (n > 1000000) {
+        return (n / 1000000).toFixed(2) + "ms";
+    } else if (n > 1000) {
+        return (n / 1000).toFixed(2) + "µs";
+    }
+    return n + "ns";
+}
+
 const reloadModal = `
 <div class='modal fade' id='reloadModal' tabindex='-1' aria-labelledby='reloadModalLabel' aria-hidden='true'>
     <div class='modal-dialog modal-fullscreen'>
@@ -346,7 +359,14 @@ class MultiRingBuffer {
             {x: x, y:this.data['shaped'].sortedY[1], name: 'Shaped Upload', type: 'scatter', fill: 'tozeroy', marker: {color: 'rgb(124,252,0)'}},
         ];
         if (this.plotted == null) {
-            Plotly.newPlot(graph, graphData, { margin: { l:0,r:0,b:0,t:0,pad:4 }, yaxis: { automargin: true, title: "Traffic (bits)" }, xaxis: {automargin: true, title: "Time since now (seconds)"} }, { responsive: true });
+            Plotly.newPlot(
+                graph, 
+                graphData, 
+                { 
+                    margin: { l:0,r:0,b:0,t:0,pad:4 }, 
+                    yaxis: { automargin: true, title: "Traffic (bits)", exponentformat: "SI" }, 
+                    xaxis: {automargin: true, title: "Time since now (seconds)"} 
+                }, { responsive: true });
             this.plotted = true;
         } else {
             Plotly.redraw(graph, graphData);
@@ -483,4 +503,11 @@ function ipToHostname(ip) {
         dnsCache[ip] = hostname;
     })
     return ip;
+}
+
+function setTitle() {
+    $.get("/api/node_name", (name) => {
+        // Set the window title
+        document.title = name + " - LibreQoS Node Manager";
+    })
 }

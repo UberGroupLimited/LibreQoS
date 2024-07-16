@@ -2,26 +2,14 @@ import time
 import datetime
 from LibreQoS import refreshShapers, refreshShapersUpdateOnly
 from graphInfluxDB import refreshBandwidthGraphs, refreshLatencyGraphs
-from ispConfig import influxDBEnabled, automaticImportUISP, automaticImportSplynx, automaticImportRestHttp
-try:
-	from ispConfig import queueRefreshIntervalMins
-except:
-	queueRefreshIntervalMins = 30
-if automaticImportUISP:
-	from integrationUISP import importFromUISP
-if automaticImportSplynx:
+import subprocess
+from liblqos_python import automatic_import_uisp, automatic_import_splynx, queue_refresh_interval_mins, \
+	automatic_import_powercode, automatic_import_sonar, influx_db_enabled, get_libreqos_directory
+if automatic_import_splynx():
 	from integrationSplynx import importFromSplynx
-try:
-	from ispConfig import automaticImportPowercode
-except:
-	automaticImportPowercode = False
-if automaticImportPowercode:
+if automatic_import_powercode():
 	from integrationPowercode import importFromPowercode
-try:
-	from ispConfig import automaticImportSonar
-except:
-	automaticImportSonar = False
-if automaticImportSonar:
+if automatic_import_sonar():
 	from integrationSonar import importFromSonar
 
 if automaticImportRestHttp['enabled']:
@@ -33,22 +21,24 @@ from apscheduler.executors.pool import ThreadPoolExecutor
 ads = BlockingScheduler(executors={'default': ThreadPoolExecutor(1)})
 
 def importFromCRM():
-	if automaticImportUISP:
+	if automatic_import_uisp():
 		try:
-			importFromUISP()
+			# Call bin/uisp_integration
+			path = get_libreqos_directory() + "/bin/uisp_integration"
+			subprocess.run([path])
 		except:
 			print("Failed to import from UISP")
-	elif automaticImportSplynx:
+	elif automatic_import_splynx():
 		try:
 			importFromSplynx()
 		except:
 			print("Failed to import from Splynx")
-	elif automaticImportPowercode:
+	elif automatic_import_powercode():
 		try:
 			importFromPowercode()
 		except:
 			print("Failed to import from Powercode")
-	elif automaticImportSonar:
+	elif automatic_import_sonar():
 		try:
 			importFromSonar()
 		except:
@@ -80,9 +70,9 @@ def importAndShapePartialReload():
 if __name__ == '__main__':
 	importAndShapeFullReload()
 
-	ads.add_job(importAndShapePartialReload, 'interval', minutes=queueRefreshIntervalMins, max_instances=1)
+	ads.add_job(importAndShapePartialReload, 'interval', minutes=queue_refresh_interval_mins(), max_instances=1)
 
-	if influxDBEnabled:
+	if influx_db_enabled():
 		ads.add_job(graphHandler, 'interval', seconds=10, max_instances=1)
 
 	ads.start()

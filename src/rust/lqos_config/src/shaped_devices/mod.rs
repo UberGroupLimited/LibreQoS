@@ -1,6 +1,6 @@
 mod serializable;
 mod shaped_device;
-use crate::{etc, SUPPORTED_CUSTOMERS};
+use crate::SUPPORTED_CUSTOMERS;
 use csv::{QuoteStyle, ReaderBuilder, WriterBuilder};
 use log::error;
 use serializable::SerializableShapedDevice;
@@ -34,9 +34,11 @@ impl ConfigShapedDevices {
   /// file.
   pub fn path() -> Result<PathBuf, ShapedDevicesError> {
     let cfg =
-      etc::EtcLqos::load().map_err(|_| ShapedDevicesError::ConfigLoadError)?;
+      crate::load_config().map_err(|_| ShapedDevicesError::ConfigLoadError)?;
     let base_path = Path::new(&cfg.lqos_directory);
-    Ok(base_path.join("ShapedDevices.csv"))
+    let full_path = base_path.join("ShapedDevices.csv");
+    log::info!("ShapedDevices.csv path: {:?}", full_path);
+    Ok(full_path)
   }
 
   /// Does ShapedDevices.csv exist?
@@ -108,6 +110,13 @@ impl ConfigShapedDevices {
     Ok(Self { devices, trie })
   }
 
+  /// Replace the current shaped devices list with a new one
+  pub fn replace_with_new_data(&mut self, devices: Vec<ShapedDevice>) {
+    self.devices = devices;
+    log::info!("{:?}", self.devices);
+    self.trie = ConfigShapedDevices::make_trie(&self.devices);
+  }
+
   fn make_trie(
     devices: &[ShapedDevice],
   ) -> ip_network_table::IpNetworkTable<usize> {
@@ -146,7 +155,7 @@ impl ConfigShapedDevices {
   /// Saves the current shaped devices list to `ShapedDevices.csv`
   pub fn write_csv(&self, filename: &str) -> Result<(), ShapedDevicesError> {
     let cfg =
-      etc::EtcLqos::load().map_err(|_| ShapedDevicesError::ConfigLoadError)?;
+      crate::load_config().map_err(|_| ShapedDevicesError::ConfigLoadError)?;
     let base_path = Path::new(&cfg.lqos_directory);
     let path = base_path.join(filename);
     let csv = self.to_csv_string()?;
@@ -154,6 +163,7 @@ impl ConfigShapedDevices {
       error!("Unable to write ShapedDevices.csv. Permissions?");
       return Err(ShapedDevicesError::WriteFail);
     }
+    //println!("Would write to file: {}", csv);
     Ok(())
   }
 }

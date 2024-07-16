@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 /// One or more `BusRequest` objects must be included in a `BusSession`
 /// request. Each `BusRequest` represents a single request for action
 /// or data.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum BusRequest {
   /// A generic "is it alive?" test. Returns an `Ack`.
   Ping,
@@ -24,6 +24,14 @@ pub enum BusRequest {
 
   /// Retrieves the TopN hosts with the worst RTT, sorted by RTT descending.
   GetWorstRtt {
+    /// First row to retrieve (usually 0 unless you are paging)
+    start: u32,
+    /// Last row to retrieve (10 for top-10 starting at 0)
+    end: u32,
+  },
+
+  /// Retrieves the TopN hosts with the worst Retransmits, sorted by Retransmits descending.
+  GetWorstRetransmits {
     /// First row to retrieve (usually 0 unless you are paging)
     start: u32,
     /// Last row to retrieve (10 for top-10 starting at 0)
@@ -105,6 +113,9 @@ pub enum BusRequest {
   /// Requests a real-time adjustment of the `lqosd` tuning settings
   UpdateLqosDTuning(u64, Tunables),
 
+  /// Requests that the configuration be updated
+  UpdateLqosdConfig(Box<lqos_config::Config>),
+
   /// Request that we start watching a circuit's queue
   WatchQueue(String),
 
@@ -133,9 +144,6 @@ pub enum BusRequest {
   /// Obtain the lqosd statistics
   GetLqosStats,
 
-  /// Tell me flow stats for a given IP address
-  GetFlowStats(String),
-
   /// Tell Heimdall to hyper-focus on an IP address for a bit
   GatherPacketData(String),
 
@@ -152,6 +160,51 @@ pub enum BusRequest {
   /// display a "run bandwidht test" link.
   #[cfg(feature = "equinix_tests")]
   RequestLqosEquinixTest,
+
+  /// Request a dump of all active flows. This can be a lot of data.
+  /// so this is intended for debugging
+  DumpActiveFlows,
+
+  /// Count the nubmer of active flows.
+  CountActiveFlows,
+
+  /// Top Flows Reports
+  TopFlows{ 
+    /// The type of top report to request
+    flow_type: TopFlowType,
+    /// The number of flows to return
+    n: u32 
+  },
+
+  /// Flows by IP Address
+  FlowsByIp(String),
+
+  /// Current Endpoints by Country
+  CurrentEndpointsByCountry,
+
+  /// Lat/Lon of Endpoints
+  CurrentEndpointLatLon,
+
+  /// Ether Protocol Summary
+  EtherProtocolSummary,
+
+  /// IP Protocol Summary
+  IpProtocolSummary,
+}
+
+/// Defines the type of "top" flow being requested
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Copy)]
+pub enum TopFlowType {
+  /// Top flows by current estimated bandwidth use
+  RateEstimate,
+  /// Top flows by total bytes transferred
+  Bytes,
+  /// Top flows by total packets transferred
+  Packets,
+  /// Top flows by total drops
+  Drops,
+  /// Top flows by round-trip time estimate
+  RoundTripTime,
 }
 
 /// Specific requests from the long-term stats system

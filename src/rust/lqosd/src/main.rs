@@ -12,12 +12,11 @@ mod long_term_stats;
 use std::net::IpAddr;
 use crate::{
   file_lock::FileLock,
-  ip_mapping::{clear_ip_flows, del_ip_flow, list_mapped_ips, map_ip_to_flow},
+  ip_mapping::{clear_ip_flows, del_ip_flow, list_mapped_ips, map_ip_to_flow}, throughput_tracker::flow_data::{flowbee_handle_events, setup_netflow_tracker},
 };
 use anyhow::Result;
 use log::{info, warn};
 use lqos_bus::{BusRequest, BusResponse, UnixSocketServer, StatsRequest};
-use lqos_config::LibreQoSConfig;
 use lqos_heimdall::{n_second_packet_dump, perf_interface::heimdall_handle_events, start_heimdall};
 use lqos_queue_tracker::{
   add_watched_queue, get_raw_circuit_data, spawn_queue_monitor,
@@ -30,9 +29,10 @@ use signal_hook::{
   iterator::Signals,
 };
 use stats::{BUS_REQUESTS, TIME_TO_POLL_HOSTS, HIGH_WATERMARK_DOWN, HIGH_WATERMARK_UP, FLOWS_TRACKED};
-use throughput_tracker::get_flow_stats;
+use throughput_tracker::flow_data::get_rtt_events_per_second;
 use tokio::join;
 mod stats;
+mod preflight_checks;
 
 // Use JemAllocator only on supported platforms
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -57,30 +57,46 @@ async fn main() -> Result<()> {
   }
 
   info!("LibreQoS Daemon Starting");
-  let config = LibreQoSConfig::load()?;
-  tuning::tune_lqosd_from_config_file(&config)?;
+  
+  // Run preflight checks
+  preflight_checks::preflight_checks()?;
+
+  // Load config
+  let config = lqos_config::load_config()?;
+
+  
+  // Apply Tunings
+  tuning::tune_lqosd_from_config_file()?;
 
   // Start the XDP/TC kernels
-  let kernels = if config.on_a_stick_mode {
+  let kernels = if config.on_a_stick_mode() {
     LibreQoSKernels::on_a_stick_mode(
-      &config.internet_interface,
-      config.stick_vlans.1,
-      config.stick_vlans.0,
+      &config.internet_interface(),
+      config.stick_vlans().1 as u16,
+      config.stick_vlans().0 as u16,
       Some(heimdall_handle_events),
+      Some(flowbee_handle_events),
     )?
   } else {
-    LibreQoSKernels::new(&config.internet_interface, &config.isp_interface, Some(heimdall_handle_events))?
+    LibreQoSKernels::new(
+      &config.internet_interface(), 
+      &config.isp_interface(), 
+      Some(heimdall_handle_events), 
+      Some(flowbee_handle_events)
+    )?
   };
 
   // Spawn tracking sub-systems
   let long_term_stats_tx = start_long_term_stats().await;
+  let flow_tx = setup_netflow_tracker();
+  let _ = throughput_tracker::flow_data::setup_flow_analysis();
   join!(
     start_heimdall(),
     spawn_queue_structure_monitor(),
     shaped_devices_tracker::shaped_devices_watcher(),
     shaped_devices_tracker::network_json_watcher(),
     anonymous_usage::start_anonymous_usage(),
-    throughput_tracker::spawn_throughput_monitor(long_term_stats_tx.clone()),
+    throughput_tracker::spawn_throughput_monitor(long_term_stats_tx.clone(), flow_tx),
   );
   spawn_queue_monitor();
 
@@ -107,13 +123,9 @@ async fn main() -> Result<()> {
         }
         SIGHUP => {
           warn!("Reloading configuration because of SIGHUP");
-          if let Ok(config) = LibreQoSConfig::load() {
-            let result = tuning::tune_lqosd_from_config_file(&config);
-            if let Err(err) = result {
-              warn!("Unable to HUP tunables: {:?}", err)
-            }
-          } else {
-            warn!("Unable to reload configuration");
+          let result = tuning::tune_lqosd_from_config_file();
+          if let Err(err) = result {
+            warn!("Unable to HUP tunables: {:?}", err)
           }
         }
         _ => warn!("No handler for signal: {sig}"),
@@ -148,6 +160,9 @@ fn handle_bus_requests(
       BusRequest::GetWorstRtt { start, end } => {
         throughput_tracker::worst_n(*start, *end)
       }
+      BusRequest::GetWorstRetransmits { start, end } => {
+        throughput_tracker::worst_n_retransmits(*start, *end)
+      }
       BusRequest::GetBestRtt { start, end } => {
         throughput_tracker::best_n(*start, *end)
       }
@@ -172,6 +187,13 @@ fn handle_bus_requests(
         lqos_bus::BusResponse::Ack
       }
       BusRequest::UpdateLqosDTuning(..) => tuning::tune_lqosd_from_bus(req),
+      BusRequest::UpdateLqosdConfig(config) => {
+        let result = lqos_config::update_config(config);
+        if result.is_err() {
+          log::error!("Error updating config: {:?}", result);
+        }
+        BusResponse::Ack
+      },
       #[cfg(feature = "equinix_tests")]
       BusRequest::RequestLqosEquinixTest => lqos_daht_test::lqos_daht_test(),
       BusRequest::ValidateShapedDevicesCsv => {
@@ -198,9 +220,9 @@ fn handle_bus_requests(
             HIGH_WATERMARK_UP.load(std::sync::atomic::Ordering::Relaxed),
           ),
           tracked_flows: FLOWS_TRACKED.load(std::sync::atomic::Ordering::Relaxed),
+          rtt_events_per_second: get_rtt_events_per_second(),
         }
       }
-      BusRequest::GetFlowStats(ip) => get_flow_stats(ip),
       BusRequest::GetPacketHeaderDump(id) => {
         BusResponse::PacketDump(n_second_packet_dump(*id))
       }
@@ -228,6 +250,18 @@ fn handle_bus_requests(
       BusRequest::GetLongTermStats(StatsRequest::Tree) => {
         long_term_stats::get_stats_tree()
       }
+      BusRequest::DumpActiveFlows => {
+        throughput_tracker::dump_active_flows()
+      }
+      BusRequest::CountActiveFlows => {
+        throughput_tracker::count_active_flows()
+      }
+      BusRequest::TopFlows { n, flow_type } => throughput_tracker::top_flows(*n, *flow_type),
+      BusRequest::FlowsByIp(ip) => throughput_tracker::flows_by_ip(ip),
+      BusRequest::CurrentEndpointsByCountry => throughput_tracker::current_endpoints_by_country(),
+      BusRequest::CurrentEndpointLatLon => throughput_tracker::current_lat_lon(),
+      BusRequest::EtherProtocolSummary => throughput_tracker::ether_protocol_summary(),
+      BusRequest::IpProtocolSummary => throughput_tracker::ip_protocol_summary(),
     });
   }
 }
