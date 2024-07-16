@@ -19,7 +19,7 @@ def spylnxRequest(target, headers):
 	# Sends a REST GET request to Spylnx and returns the
 	# result in JSON
 	url = splynx_api_url + "/api/2.0/" + target
-	r = requests.get(url, headers=headers, timeout=10)
+	r = requests.get(url, headers=headers, timeout=120)
 	return r.json()
 
 def getTariffs(headers):
@@ -57,7 +57,7 @@ def combineAddress(json):
 	# Combines address fields into a single string
 	# The API docs seem to indicate that there isn't a "state" field?
 	if json["street_1"]=="" and json["city"]=="" and json["zip_code"]=="":
-		return json["id"] + "/" + json["name"]
+		return str(json["id"]) + "/" + json["name"]
 	else:
 		return json["street_1"] + " " + json["city"] + " " + json["zip_code"]
 
